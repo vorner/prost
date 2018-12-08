@@ -569,10 +569,26 @@ impl Config {
         for (module, content) in modules {
             let mut filename = module.join(".");
             filename.push_str(".rs");
-            trace!("writing: {:?}", filename);
-            let mut file = fs::File::create(target.join(filename))?;
-            file.write_all(content.as_bytes())?;
-            file.flush()?;
+            let full_filename = target.join(&filename);
+
+            // If we overwrite the file, it'll trigger recompilation. As we are called on any
+            // change around whatsoever, this makes a lot of false positives in change detection.
+            // Therefore, we first check if anything actually changed before overwriting it. In
+            // case of problems we err on the safe side.
+            let mut orig_content = Vec::new();
+            let changed = fs::File::open(&full_filename)
+                .and_then(|mut f| f.read_to_end(&mut orig_content))
+                .map(|_| orig_content != content.as_bytes())
+                .unwrap_or(true);
+
+            if changed {
+                trace!("writing: {:?}", filename);
+                let mut file = fs::File::create(&full_filename)?;
+                file.write_all(content.as_bytes())?;
+                file.flush()?;
+            } else {
+                trace!("unchanged: {:?}", filename);
+            }
         }
 
         Ok(())
